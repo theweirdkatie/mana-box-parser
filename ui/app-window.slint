@@ -1,18 +1,41 @@
-import { Button, VerticalBox } from "std-widgets.slint";
+import { Button, VerticalBox, TextEdit } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
-    in-out property <int> counter: 42;
-    callback request-increase-value();
+    in property <string> file_name;
+    in property <string> parsed_file;
+    callback pick_file();
+    callback parse_file();
+
+    width: 300px;
+
     VerticalBox {
         Text {
-            text: "Counter: \{root.counter}";
+            text: "Choose a file";
         }
 
         Button {
-            text: "Increase value";
+            text: "Select";
             clicked => {
-                root.request-increase-value();
+                root.pick_file();
             }
+        }
+
+        Text {
+            text: root.file_name;
+        }
+
+        Button {
+            text: "Parse";
+            clicked => {
+                root.parse_file();
+            }
+        }
+
+        TextEdit {
+            font-size: 14px;
+            width: parent.width;
+            height: 300px;
+            text: parsed_file;
         }
     }
 }
