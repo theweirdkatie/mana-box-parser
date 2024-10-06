@@ -1,5 +1,6 @@
 // TODO: app takes WAY too long to transform thousands of lines of text for the text editor
 // TODO: serde still doesn't like quotations
+// TODO: still need to implement differences in set codes between manabox and tappedout
 
 // Prevent console window in addition to Slint window in Windows release builds when, e.g., starting the app via file manager. Ignored on other platforms.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -93,7 +94,7 @@ struct CsvCard {
 }
 
 #[derive(Debug, Default, PartialEq, Deserialize)]
-#[serde(rename_all="lowercase")]
+#[serde(rename_all = "lowercase")]
 enum Foil {
     #[default]
     Normal,
@@ -101,7 +102,7 @@ enum Foil {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(rename_all="lowercase")]
+#[serde(rename_all = "lowercase")]
 enum Rarity {
     #[default]
     Common,
@@ -114,7 +115,9 @@ fn get_cards(file_path: std::path::PathBuf) -> Result<Vec<Card>, Box<dyn Error>>
     let file = std::fs::File::open(file_path)?;
     let mut cards: Vec<Card> = vec![];
 
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).quoting(false).from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(file);
 
     for result in rdr.deserialize::<CsvCard>() {
         if cards.len() >= 100 {
@@ -134,16 +137,28 @@ fn get_cards(file_path: std::path::PathBuf) -> Result<Vec<Card>, Box<dyn Error>>
 
 impl From<CsvCard> for Card {
     fn from(card: CsvCard) -> Self {
-        Self { quantity: card.quantity, name: card.name, set: card.set_code, var: card.collector_number, foil: if card.foil == Foil::Foil { true } else { false } }
+        Self {
+            quantity: card.quantity,
+            name: card.name,
+            set: card.set_code,
+            var: card.collector_number,
+            foil: if card.foil == Foil::Foil { true } else { false },
+        }
     }
 }
 
 impl ToString for Card {
     fn to_string(&self) -> String {
         if self.foil {
-            format!("{}x {} ({}:{}) *f*", self.quantity, self.name, self.set, self.var)
+            format!(
+                "{}x {} ({}:{}) *f*",
+                self.quantity, self.name, self.set, self.var
+            )
         } else {
-            format!("{}x {} ({}:{})", self.quantity, self.name, self.set, self.var)
+            format!(
+                "{}x {} ({}:{})",
+                self.quantity, self.name, self.set, self.var
+            )
         }
     }
 }
