@@ -1,12 +1,10 @@
-// TODO: app takes WAY too long to transform thousands of lines of text for the text editor
-// TODO: serde still doesn't like quotations
 // TODO: still need to implement differences in set codes between manabox and tappedout
 
 // Prevent console window in addition to Slint window in Windows release builds when, e.g., starting the app via file manager. Ignored on other platforms.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{default, error::Error};
-
+use std::{cell::RefCell, error::Error, fs::File, io::Write, path::PathBuf, rc::Rc};
+use csv::StringRecord;
 use serde::Deserialize;
 
 slint::include_modules!();
@@ -16,37 +14,61 @@ struct Card {
     quantity: usize,
     name: String,
     set: String,
-    var: usize,
+    var: String,
     foil: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let ui = AppWindow::new()?;
-    let mut file_path = String::new();
+    let file_path = Rc::new(RefCell::new(String::new()));
 
-    let mut ui_weak = ui.as_weak();
+    let ui_weak = ui.as_weak();
+    let fp = file_path.clone();
     ui.on_pick_file(move || {
         let mut dialog = rfd::FileDialog::new();
         dialog = dialog.set_title("Select a file");
 
         if let Some(path) = dialog.pick_file() {
-            file_path = String::from(path.to_str().unwrap());
+            let mut fp = fp.borrow_mut();
+            *fp = String::from(path.to_str().unwrap());
             let ui = ui_weak.unwrap();
             ui.set_file_name(path.to_str().unwrap().into());
         }
     });
 
-    let mut ui_weak = ui.as_weak();
+    let ui_weak = ui.as_weak();
+    let fp = file_path.clone();
     ui.on_parse_file(move || {
         let ui = ui_weak.unwrap();
-        let file_path = std::path::PathBuf::from(ui.get_file_name().to_string());
-        let cards = get_cards(file_path).expect("Couldn't get cards!");
-        let mut text = String::new();
-        for card in cards {
-            text += &card.to_string();
-            text.push('\n');
+        let fp = fp.borrow();
+
+        let dialog = rfd::FileDialog::new()
+            .add_filter("txt", &["txt"])
+            .set_title("Save file");
+
+        if let Some(mut path) = dialog.save_file() {
+            // set extension, regardless of user input
+            if path.file_name().is_some() {
+                path.set_extension("txt");
+            } else {
+                path.set_file_name("cards");
+                path.set_extension("txt");
+            }
+
+            // reading file
+            let cards = get_cards(&fp).expect("Couldn't get cards!");
+            let len = cards.len() as i32;
+            ui.set_total_cards(len);
+
+            // write to new file
+            let mut nf = File::create(path).expect("Could not create file");
+            for (i, card) in cards.iter().enumerate() {
+                let mut buf = card.to_string();
+                buf.push('\n');
+                let _ = nf.write(&buf.as_bytes());
+                ui.set_cards_completed(i as i32 +1);
+            }
         }
-        ui.set_parsed_file(text.into());
     });
 
     ui.run()?;
@@ -68,7 +90,7 @@ struct CsvCard {
     #[serde(alias = "Set name")]
     set_name: String,
     #[serde(alias = "Collector number")]
-    collector_number: usize,
+    collector_number: String,
     #[serde(alias = "Foil")]
     foil: Foil,
     #[serde(alias = "Rarity")]
@@ -80,6 +102,7 @@ struct CsvCard {
     #[serde(alias = "Scryfall ID")]
     scryfall_id: String,
     #[serde(alias = "Purchase price")]
+    #[serde(skip)]
     purchase_price: f32,
     #[serde(alias = "Misprint")]
     misprint: bool,
@@ -99,6 +122,7 @@ enum Foil {
     #[default]
     Normal,
     Foil,
+    Etched,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -111,27 +135,48 @@ enum Rarity {
     Mythic,
 }
 
-fn get_cards(file_path: std::path::PathBuf) -> Result<Vec<Card>, Box<dyn Error>> {
-    let file = std::fs::File::open(file_path)?;
+fn get_cards(path: &String) -> Result<Vec<Card>, Box<dyn Error>> {
+    let file_path = PathBuf::from(path.clone());
+    let file = File::open(file_path)?;
     let mut cards: Vec<Card> = vec![];
+    let mut bad_cards = vec![];
 
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
         .from_reader(file);
 
     for result in rdr.deserialize::<CsvCard>() {
-        if cards.len() >= 100 {
-            break;
-        }
         match result {
             Ok(r) => {
-                let card = Card::from(r);
-                println!("{}", card.clone().to_string());
-                cards.push(card);
+                if r.set_name.to_ascii_lowercase().contains("token") {
+                    println!("Ignoring token: {}", Card::from(r).to_string());
+                    continue;
+                } else if r.set_code.chars().nth(0) == Some('T') && r.set_code.len() > 3 {
+                    println!("Ignoring token: {}", Card::from(r).to_string());
+                    continue;
+                } else {
+                    let card = Card::from(r);
+                    println!("{}", card.clone().to_string());
+                    cards.push(card);
+                }
             }
-            Err(e) => println!("Error! Couldn't parse: {}", e),
+            Err(e) => {
+                bad_cards.push(e);
+            },
         }
     }
+
+    println!("{} ERRORS", bad_cards.len());
+
+    for bad_position in bad_cards {
+        let mut rec = StringRecord::new();
+        if let Some(pos) = bad_position.position() {
+            rdr.seek(pos.clone())?;
+            let _ = rdr.read_record(&mut rec);
+            println!("Bad record: ({}) {rec:?}", bad_position);
+        }
+    }
+
     Ok(cards)
 }
 

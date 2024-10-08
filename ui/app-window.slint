@@ -1,27 +1,30 @@
-import { Button, VerticalBox, TextEdit } from "std-widgets.slint";
+import { Button, VerticalBox, TextEdit, HorizontalBox } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
     in property <string> file_name;
-    in property <string> parsed_file;
+    in property <int> total_cards;
+    in property <int> cards_completed;
+    
     callback pick_file();
     callback parse_file();
 
-    width: 300px;
+    width: 500px;
 
     VerticalBox {
         Text {
-            text: "Choose a file";
+            text: "Choose a file to parse";
         }
 
-        Button {
-            text: "Select";
-            clicked => {
-                root.pick_file();
+        HorizontalBox {
+            TextInput {
+                text: root.file_name;
             }
-        }
-
-        Text {
-            text: root.file_name;
+            Button {
+                text: "Choose file...";
+                clicked => {
+                    root.pick_file();
+                }
+            }
         }
 
         Button {
@@ -31,11 +34,12 @@ export component AppWindow inherits Window {
             }
         }
 
-        TextEdit {
-            font-size: 14px;
-            width: parent.width;
-            height: 300px;
-            text: parsed_file;
+        Text {
+            text: "Status:";
+        }
+
+        Text {
+            text: cards_completed + " / " + total_cards;
         }
     }
 }
